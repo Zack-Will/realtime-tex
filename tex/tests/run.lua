@@ -38,4 +38,21 @@ check("round_xn_over_d matches exact rounding", okc)
 -- expansion formula: ef in millionths, 2% stretch of 431102 sp
 check("expansion 2%", dl.round_xn_over_d(431102, 1020000, 1000000) == 439724)
 
+-- Output routines can nest: @outputdblcol calls @outputpage. Do not restore
+-- a body unit's attribute until the outermost output hook has returned.
+local saved_kpse, saved_luatexbase = kpse, luatexbase
+kpse = { find_file = function(name) return "tex/" .. name end }
+luatexbase = { new_attribute = function() return 7 end }
+local attr
+tex.setattribute = function(_, _, value) attr = value end
+local capture = dofile("tex/rtex-capture.lua")
+capture.cur = { uid = 42 }
+capture.output_begin()
+capture.output_begin()
+capture.output_end()
+check("nested output keeps unit attribute unset", capture.in_output and attr < 0)
+capture.output_end()
+check("outer output restores body unit attribute", not capture.in_output and attr == 42)
+kpse, luatexbase = saved_kpse, saved_luatexbase
+
 if failures > 0 then print(failures .. " failure(s)"); os.exit(1) else print("all Lua tests passed") end

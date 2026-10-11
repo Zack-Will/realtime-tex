@@ -312,16 +312,18 @@ function C.envafter(name)
   if C.env_depth == 0 and cur and (cur.kind == "env" or cur.kind == "par") and tex.nest.ptr == 0 then unit_close() end
 end
 
--- cmd/@outputpage/before hook: header and footer boxes are built inside the output routine's
--- group while a unit may still be open; without the unit attribute they are not unit rows.
+-- Output hooks: column, header and footer boxes are built while a body unit
+-- may still be open. These wrapper boxes must not inherit its unit attribute.
 function C.output_begin()
+  C.output_depth = (C.output_depth or 0) + 1
   C.in_output = true
   tex.setattribute("global", C.attr_unit, UNSET)
 end
--- cmd/@outputpage/after hook: back to the open unit (the attribute is global).
+-- Back to the open unit only after the outermost output hook (the attribute is global).
 function C.output_end()
-  C.in_output = false
-  local cur = C.cur
+  C.output_depth = C.output_depth - 1
+  C.in_output = C.output_depth > 0
+  local cur = not C.in_output and C.cur
   tex.setattribute("global", C.attr_unit, cur and cur.uid or UNSET)
 end
 

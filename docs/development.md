@@ -46,6 +46,7 @@ An existing full TeX Live (or MacTeX) works too: `export RTEX_TEXLIVE_BIN=/Libra
 cargo build --workspace --release
 cargo test --workspace --release     # unit tests, plus engine tests that need lualatex
 texlua tex/tests/run.lua             # Lua tests
+bash tex/tests/acmart.sh "$PWD/build/acmart-test"  # acmart capture/verify and guard regression (needs acmart)
 scripts/check-abi.sh                 # include/rtex.h matches the exported symbols (Linux, macOS)
 cargo fmt --all && cargo clippy --workspace --all-targets --release -- -D warnings
 ```
