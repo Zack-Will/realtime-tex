@@ -18,6 +18,9 @@ local INT_PARAMS = { "looseness", "tolerance", "pretolerance", "hyphenpenalty", 
   "widowpenalty", "adjustspacing", "protrudechars", "hangafter" }
 local DIM_PARAMS = { "hsize", "parindent", "emergencystretch", "lineskiplimit", "hangindent", "mathsurround" }
 local GLUE_PARAMS = { "leftskip", "rightskip", "parfillskip", "baselineskip", "lineskip", "spaceskip", "xspaceskip" }
+-- LaTeX lengths used by graphics, minipages and float-box setup. The live
+-- engine may have different idle column geometry from the document body.
+local LATEX_DIM_PARAMS = { "columnwidth", "linewidth", "textwidth", "columnsep" }
 C.INT_PARAMS, C.DIM_PARAMS, C.GLUE_PARAMS = INT_PARAMS, DIM_PARAMS, GLUE_PARAMS
 
 -- Block environments that open a unit when begun in vertical mode. Extra names (theorem-like
@@ -149,6 +152,7 @@ local function params()
   local ints, dims, glues = {}, {}, {}
   for _, k in ipairs(INT_PARAMS) do ints[k] = tex.get(k) end
   for _, k in ipairs(DIM_PARAMS) do dims[k] = tex.get(k) end
+  for _, k in ipairs(LATEX_DIM_PARAMS) do dims[k] = tex.getdimen(k) end
   for _, k in ipairs(GLUE_PARAMS) do glues[k] = { tex.getglue(k) } end
   return ints, dims, glues
 end

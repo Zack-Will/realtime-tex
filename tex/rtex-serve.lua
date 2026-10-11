@@ -163,6 +163,7 @@ end
 -- Contexts are preprocessed when installed: parameter tables become flat arrays, and the
 -- NFSS selection string is built once.
 local tex_set, setglue = tex.set, tex.setglue
+local LATEX_DIMS = { columnwidth = true, linewidth = true, textwidth = true, columnsep = true }
 local function install_context(id, ctx)
   local ints, dims, glues = {}, {}, {}
   -- Contexts are installed while the server idles at the outer level, and the unit box
@@ -175,7 +176,7 @@ local function install_context(id, ctx)
   end
   for k, v in pairs(ctx.dims or {}) do
     local ok, cur = pcall(tex_get, k)
-    if not ok or cur ~= v then dims[#dims + 1] = k; dims[#dims + 1] = v end
+    if not LATEX_DIMS[k] and (not ok or cur ~= v) then dims[#dims + 1] = k; dims[#dims + 1] = v end
   end
   for k, v in pairs(ctx.glues or {}) do glues[#glues + 1] = { k, v[1] or 0, v[2] or 0, v[3] or 0, v[4] or 0, v[5] or 0 } end
   ctx.a_ints, ctx.a_dims, ctx.a_glues = ints, dims, glues
@@ -183,6 +184,11 @@ local function install_context(id, ctx)
   -- replayed), \if@nobreak and friends, \everypar replay, float-box emulation
   local kind, name = ctx.kind or "par", ctx.name
   local extra = {}
+  for k in pairs(LATEX_DIMS) do
+    if ctx.dims and ctx.dims[k] then
+      extra[#extra + 1] = format("\\%s=%dsp ", k, ctx.dims[k])
+    end
+  end
   local names = {}
   for k, v in pairs(ctx.counters or {}) do
     -- only counters that are valid control words (biblatex has `bbx:relatedcount`), that the
