@@ -73,9 +73,9 @@ Little-endian throughout. `str` is a `u16` byte length followed by UTF-8 bytes.
 
 ```
 Header, 16 bytes
-  'L' 'O' 'D' 'L'      magic
+  'R' 'T' 'D' 'L'      magic
   u16 version          1
-  u16 flags            bit 0: 1 = page list, 0 = unit list
+  u16 flags            bit 0: 1 = page list, 0 = unit list; bit 1: empty flags were []
   u32 total_length     bytes, including this header
   u32 reserved         0
 
@@ -93,6 +93,9 @@ Records, until END: u8 tag, u32 payload_length, payload
                    (virtual fonts are expanded into their real fonts and never appear)
                    slant/extend/squeeze in thousandths; 0 means unset
   0x03 FLAG        str key, i32 value                 reason the list is degraded
+  0x04 FONT_META   u32 font_id, str JSON overrides    optional, after the corresponding FONT;
+                   preserves omitted/normalized FontDesc fields (e.g. encodingbytes,
+                   embedding, absent values, fractional sizes) from a JSON list
   0x10 LINE        i32 par, i32 line_index, i32 x, i32 baseline_y, i32 width, i32 height,
                    i32 depth, f64 glue_set, u8 glue_sign, u8 glue_order
   0x12 LINE_UNIT   i32 unit, i32 row                  page lists only, right after LINE
@@ -110,6 +113,9 @@ Records, until END: u8 tag, u32 payload_length, payload
   0x28 MATRIX      u8 op (0 save, 1 set, 2 restore), i32 x, i32 y, str data ("a b c d")
   0xFF END
 ```
+
+Rust encoding preserves JSON font metadata with optional `FONT_META` records; revision-1
+readers that do not know them can skip those records and still draw the list.
 
 Decoders: `rtex_dl::DisplayList::from_binary` in Rust, and `rtex_dl_to_json` in the C library.
 Inside TeX, the encoder is `tex/rtex-dl-bin.lua`.

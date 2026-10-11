@@ -295,8 +295,12 @@ mod tests {
 
     fn dl(kind: &str) -> DisplayList {
         serde_json::from_value(serde_json::json!({
-            "kind": kind, "unit": "sp", "width": 100, "height": 20, "flags": {},
-            "other": [["r", 10, 20, 30, 40], ["i", 1, 50, 60, 70, 80]],
+            "kind": kind, "unit": "sp", "width": 100, "height": 20, "flags": [],
+            "other": [["r", 10, 20, 30, 40], ["M", "save", 0, 0, ""],
+                      ["M", "set", 0, 0, "1 0 0 1"], ["i", 1, 50, 60, 70, 80],
+                      ["M", "restore", 0, 0, ""]],
+            "fonts": {"1": {"id": 1, "filename": "lmroman10-regular.otf", "format": "opentype",
+                            "size": 655360, "encodingbytes": 2, "embedding": "subset"}},
             "images_info": {"1": {"index": 1, "file": "figure.pdf", "page": 1, "pages": 1}},
             "page": if kind == "page" { Some(1) } else { None },
             "page_width": if kind == "page" { Some(600) } else { None },

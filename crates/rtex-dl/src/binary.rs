@@ -108,6 +108,44 @@ fn opt_str(s: String) -> Option<String> {
     }
 }
 
+fn read_font(p: &mut Reader<'_>) -> Result<FontDesc, BinError> {
+    let id = p.u32()? as i64;
+    let size = p.i32()?;
+    let kind = p.u8()?;
+    let _pad = p.u8()?;
+    let subfont = p.u16()?;
+    let slant = p.i32()?;
+    let extend = p.i32()?;
+    let squeeze = p.i32()?;
+    let designsize = p.i32()?;
+    let filename = p.str()?;
+    let psname = p.str()?;
+    let name = p.str()?;
+    let fullname = p.str()?;
+    let format = p.str()?;
+    Ok(FontDesc {
+        id,
+        name: opt_str(name),
+        fullname: opt_str(fullname),
+        psname: opt_str(psname),
+        filename: opt_str(filename),
+        format: opt_str(format).or_else(|| kind_name(kind).map(|s| s.to_string())),
+        kind: Some(if kind == 5 {
+            "virtual".into()
+        } else {
+            "real".into()
+        }),
+        size: Some(size as f64),
+        designsize: Some(designsize as f64),
+        slant: Some(slant as f64),
+        extend: Some(extend as f64),
+        squeeze: Some(squeeze as f64),
+        subfont: Some(subfont as i64),
+        encodingbytes: None,
+        embedding: None,
+    })
+}
+
 /// Decode a binary display list.
 pub fn decode(bytes: &[u8]) -> Result<DisplayList, BinError> {
     let mut r = Reader { b: bytes, pos: 0 };
@@ -161,44 +199,24 @@ pub fn decode(bytes: &[u8]) -> Result<DisplayList, BinError> {
                 let _images = p.u32().map_err(malformed)?;
             }
             0x02 => {
-                let id = p.u32().map_err(malformed)? as i64;
-                let size = p.i32().map_err(malformed)?;
-                let kind = p.u8().map_err(malformed)?;
-                let _pad = p.u8().map_err(malformed)?;
-                let subfont = p.u16().map_err(malformed)?;
-                let slant = p.i32().map_err(malformed)?;
-                let extend = p.i32().map_err(malformed)?;
-                let squeeze = p.i32().map_err(malformed)?;
-                let designsize = p.i32().map_err(malformed)?;
-                let filename = p.str().map_err(malformed)?;
-                let psname = p.str().map_err(malformed)?;
-                let name = p.str().map_err(malformed)?;
-                let fullname = p.str().map_err(malformed)?;
-                let format = p.str().map_err(malformed)?;
-                dl.fonts.insert(
-                    id.to_string(),
-                    FontDesc {
-                        id,
-                        name: opt_str(name),
-                        fullname: opt_str(fullname),
-                        psname: opt_str(psname),
-                        filename: opt_str(filename),
-                        format: opt_str(format).or_else(|| kind_name(kind).map(|s| s.to_string())),
-                        kind: Some(if kind == 5 {
-                            "virtual".into()
-                        } else {
-                            "real".into()
-                        }),
-                        size: Some(size as f64),
-                        designsize: Some(designsize as f64),
-                        slant: Some(slant as f64),
-                        extend: Some(extend as f64),
-                        squeeze: Some(squeeze as f64),
-                        subfont: Some(subfont as i64),
-                        encodingbytes: None,
-                        embedding: None,
-                    },
-                );
+                let font = read_font(&mut p).map_err(malformed)?;
+                dl.fonts.insert(font.id.to_string(), font);
+            }
+            0x04 => {
+                // Optional FONT_META record: fields the legacy FONT record normalizes or
+                // omits. Older revision-1 decoders skip it and can still draw the list.
+                let id = p.u32().map_err(malformed)?.to_string();
+                let overrides: serde_json::Map<String, serde_json::Value> =
+                    serde_json::from_str(&p.str().map_err(malformed)?)
+                        .map_err(|_| BinError::Malformed { tag, offset: start })?;
+                let font = dl
+                    .fonts
+                    .get_mut(&id)
+                    .ok_or(BinError::Malformed { tag, offset: start })?;
+                let mut value = serde_json::to_value(&*font).unwrap();
+                value.as_object_mut().unwrap().extend(overrides);
+                *font = serde_json::from_value(value)
+                    .map_err(|_| BinError::Malformed { tag, offset: start })?;
             }
             0x03 => {
                 let k = p.str().map_err(malformed)?;
@@ -366,7 +384,11 @@ pub fn decode(bytes: &[u8]) -> Result<DisplayList, BinError> {
             _ => { /* unknown record: skipped (forward compatibility) */ }
         }
     }
-    dl.flags = serde_json::Value::Object(flag_map);
+    dl.flags = if flags & 2 != 0 && flag_map.is_empty() {
+        serde_json::json!([])
+    } else {
+        serde_json::Value::Object(flag_map)
+    };
     Ok(dl)
 }
 
@@ -498,7 +520,6 @@ fn write_items(out: &mut Writer, items: &[Item]) {
                 p.i32(*y);
                 p.str(data);
                 out.rec(0x28, &p.0);
-                i += 1;
             }
             Item::Image {
                 index,
@@ -562,6 +583,22 @@ pub fn encode(dl: &DisplayList) -> Vec<u8> {
         p.str(d.fullname.as_deref().unwrap_or(""));
         p.str(d.format.as_deref().unwrap_or(""));
         body.rec(0x02, &p.0);
+        let legacy = read_font(&mut Reader { b: &p.0, pos: 0 }).unwrap();
+        let legacy = serde_json::to_value(legacy).unwrap();
+        let original = serde_json::to_value(d).unwrap();
+        let overrides: serde_json::Map<String, serde_json::Value> = original
+            .as_object()
+            .unwrap()
+            .iter()
+            .filter(|(key, value)| legacy.get(*key) != Some(*value))
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect();
+        if !overrides.is_empty() {
+            let mut metadata = Writer(Vec::new());
+            metadata.u32(d.id as u32);
+            metadata.str(&serde_json::to_string(&overrides).unwrap());
+            body.rec(0x04, &metadata.0);
+        }
     }
     for (k, v) in dl.flags_map() {
         let mut p = Writer(Vec::new());
@@ -604,7 +641,13 @@ pub fn encode(dl: &DisplayList) -> Vec<u8> {
     let mut out = Writer(Vec::new());
     out.0.extend_from_slice(MAGIC);
     out.u16(VERSION);
-    out.u16(if dl.kind == "page" { 1 } else { 0 });
+    let flags = u16::from(dl.kind == "page")
+        | if dl.flags.as_array().is_some_and(Vec::is_empty) {
+            2
+        } else {
+            0
+        };
+    out.u16(flags);
     out.u32(16 + body.0.len() as u32);
     out.u32(0);
     out.0.extend_from_slice(&body.0);
