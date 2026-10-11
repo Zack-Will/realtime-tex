@@ -272,3 +272,58 @@ fn mixed_document_converges_through_biber_and_degrades_literal_pages() {
     s.close();
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn pass_pdf_is_opt_in_and_retained_through_two_later_layouts() {
+    for warm in [false, true] {
+        let Some((_tl, root, project)) = setup(&format!("pass-pdf-{warm}"), 1, Variant::Pure)
+        else {
+            return;
+        };
+        let mut cfg = SessionConfig::new(&project, "main.tex");
+        assert!(!cfg.pass_pdf);
+        cfg.build_dir = root.join("build");
+        cfg.warm_background = warm;
+        cfg.pass_pdf = true;
+        let s = Session::open(cfg).unwrap();
+        let Event::LayoutUpdate {
+            pass_pdf,
+            pdf_fallback,
+            pages_changed,
+            compile,
+            ..
+        } = wait_layout(&s, 120)
+        else {
+            unreachable!()
+        };
+        assert_eq!(compile, CompileStatus::Ok);
+        assert!(pages_changed.iter().all(|p| p.exact));
+        assert!(pdf_fallback.is_none());
+        let pdf = pass_pdf.expect("exact layout PDF");
+        let bytes = std::fs::read(&pdf).unwrap();
+        assert!(bytes.starts_with(b"%PDF-"));
+        for _ in 0..2 {
+            s.request_layout();
+            let Event::LayoutUpdate { pass_pdf, .. } = wait_layout(&s, 120) else {
+                unreachable!()
+            };
+            assert_ne!(pass_pdf.unwrap(), pdf);
+            assert_eq!(
+                std::fs::read(&pdf).unwrap(),
+                bytes,
+                "older PDF was overwritten"
+            );
+        }
+        s.close();
+        let _ = std::fs::remove_dir_all(&root);
+    }
+    let Some((_tl, root, project)) = setup("pass-pdf-default", 1, Variant::Pure) else {
+        return;
+    };
+    let s = Session::open(SessionConfig::new(&project, "main.tex")).unwrap();
+    let ev = wait_layout(&s, 120);
+    assert!(matches!(&ev, Event::LayoutUpdate { pass_pdf: None, .. }));
+    assert!(serde_json::to_value(ev).unwrap().get("pass_pdf").is_none());
+    s.close();
+    let _ = std::fs::remove_dir_all(root);
+}

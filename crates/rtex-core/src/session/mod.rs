@@ -61,6 +61,9 @@ pub struct SessionConfig {
     /// Background passes reuse unchanged pictures (tikzpicture, circuitikz) from an earlier
     /// pass's PDF instead of drawing them again (default true; `docs/how-it-works.md`).
     pub picture_cache: bool,
+    /// Report the stable PDF of every successful layout, including exact pages (default false).
+    /// The file is retained through the next two layouts.
+    pub pass_pdf: bool,
     /// Debugging: a directory the session writes diagnostics into (default: `$RTEX_DEBUG_DIR`
     /// when set, else none). Every engine failure (watchdog, state mismatch, crash) leaves a
     /// bundle there with the request's source, context and picture entries, the server's
@@ -138,6 +141,7 @@ impl SessionConfig {
             warm_background: true,
             eligibility: EligibilityMode::Probe,
             picture_cache: true,
+            pass_pdf: false,
             debug_dir: std::env::var_os("RTEX_DEBUG_DIR")
                 .filter(|v| !v.is_empty())
                 .map(PathBuf::from),
@@ -234,6 +238,9 @@ pub enum Event {
         placements: Vec<ParagraphPlacement>,
         eligible_paragraphs: Vec<ParaId>,
         pdf_fallback: Option<PathBuf>,
+        /// Present when pass_pdf is enabled and the pass produced a PDF.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pass_pdf: Option<PathBuf>,
         wall_ms: u64,
     },
     Diagnostics {

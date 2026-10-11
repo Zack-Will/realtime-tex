@@ -93,6 +93,7 @@ briefly. The live engine and the background passes run on their own threads.
 | `trusted_macros` | `trusted_macros` | | none | macros you vouch for, treated as allow-listed |
 | `unit_envs` | `unit_envs` | | none | extra environments to treat like theorems (found automatically from `\newtheorem`) |
 | `picture_cache` | `picture_cache` | `--no-picture-cache` | on | reuse unchanged TikZ pictures from earlier passes |
+| `pass_pdf` | `pass_pdf` | `--pass-pdf` | off | report the stable pass PDF on every layout, including exact pages |
 | `warm_background` | `warm_background` | | on | keep a standby engine with the preamble loaded for passes |
 | `fast_on_stale_context` | `fast_on_stale_context` | | on | deliver live results even when something before the unit changed since the last pass |
 | `bib_tool` | | | auto | `biber`, `bibtex` or none; auto picks from the files the pass writes |
@@ -127,6 +128,7 @@ and its left edge at `f.xs[j]`; then draw its items.
 | `pages_changed` | display lists of the pages that differ from the previous layout, and whether each one is `exact`. Replace those pages. |
 | `pages_total` | page count. Drop pages beyond it. |
 | `pdf_fallback` | a PDF of this layout, set whenever any page is degraded. Draw non-exact pages from it with your PDF renderer. The file stays valid until two layouts later. |
+| `pass_pdf` | with `pass_pdf` enabled, the PDF of this layout even when all pages are exact. Absent when disabled, no PDF was produced, or the stable copy could not be saved. The file remains valid through the next two layout versions and can be removed when the third later layout is installed. |
 | `placements` | where every unit's rows are now. Use these to re-anchor live results you are still showing. |
 | `convergence` | `Converged`, `Converging`, `PassLimitReached` or `Stale` ([how-it-works.md](how-it-works.md#convergence)). Good for a status indicator. |
 | `compile` | `Ok`, `CompiledWithErrors{count}` (show the diagnostics) or `Failed` (keep showing the previous layout). |
