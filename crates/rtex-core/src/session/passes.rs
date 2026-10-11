@@ -257,6 +257,7 @@ pub(super) fn run_background_pass_inner(s: &Shared) {
                 placements: vec![],
                 eligible_paragraphs: vec![],
                 pdf_fallback: None,
+                pass_pdf: None,
                 wall_ms: t0.elapsed().as_millis() as u64,
             })
             .ok();
@@ -479,6 +480,7 @@ pub(super) fn layout_failed(s: &Shared, t0: Instant, rev: Revision, msg: String)
             placements: vec![],
             eligible_paragraphs: vec![],
             pdf_fallback: None,
+            pass_pdf: None,
             wall_ms: t0.elapsed().as_millis() as u64,
         })
         .ok();
@@ -541,6 +543,7 @@ pub(super) fn deliver_layout(
                 placements: vec![],
                 eligible_paragraphs: vec![],
                 pdf_fallback: None,
+                pass_pdf: None,
                 wall_ms: t0.elapsed().as_millis() as u64,
             })
             .ok();
@@ -778,6 +781,7 @@ pub(super) fn deliver_layout(
             pages_total,
             placements,
             eligible_paragraphs: eligible,
+            pass_pdf: if s.cfg.pass_pdf { pdf.clone() } else { None },
             pdf_fallback: if any_degraded { pdf } else { None },
             wall_ms: t0.elapsed().as_millis() as u64,
         })
