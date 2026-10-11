@@ -233,6 +233,84 @@ fn page_fonts(doc: &Document, page_id: ObjectId) -> Result<HashMap<String, PdfFo
     Ok(fonts)
 }
 
+/// XObjects use the same inherited resource dictionaries as page fonts. Keep the nearest
+/// definition when a parent resource dictionary also contains the name.
+fn page_xobjects(doc: &Document, page_id: ObjectId) -> Result<HashMap<Vec<u8>, Dictionary>> {
+    let (resources, ids) = doc.get_page_resources(page_id)?;
+    let mut dicts = Vec::new();
+    if let Some(resources) = resources {
+        dicts.push(resources.clone());
+    }
+    for id in ids {
+        dicts.push(doc.get_dictionary(id)?.clone());
+    }
+    let mut objects = HashMap::new();
+    for resources in dicts {
+        if let Ok(xobjects) = resources.get(b"XObject") {
+            let xobjects = doc.dereference(xobjects)?.1.as_dict()?;
+            for (name, object) in xobjects {
+                let stream = doc.dereference(object)?.1.as_stream()?;
+                objects
+                    .entry(name.clone())
+                    .or_insert_with(|| stream.dict.clone());
+            }
+        }
+    }
+    Ok(objects)
+}
+
+fn numbers<const N: usize>(doc: &Document, object: &Object) -> Result<[f64; N]> {
+    let array = doc.dereference(object)?.1.as_array()?;
+    if array.len() != N {
+        return Err(anyhow!("expected {N} numbers, got {}", array.len()));
+    }
+    let mut values = [0.0; N];
+    for (value, object) in values.iter_mut().zip(array) {
+        *value = f(doc.dereference(object)?.1)?;
+    }
+    Ok(values)
+}
+
+fn xobject_image(doc: &Document, name: &[u8], dict: &Dictionary, ctm: Matrix) -> Result<PdfImage> {
+    // PDF 1.7 §4.9: an image paints the unit square; a Form paints its BBox in form
+    // space, mapped first by the optional Matrix, then by the invoking stream's CTM.
+    let (bbox, transform) = match dict.get(b"Subtype")?.as_name()? {
+        b"Form" => {
+            let bbox = numbers::<4>(doc, dict.get(b"BBox")?)?;
+            let matrix = match dict.get(b"Matrix") {
+                Ok(object) => {
+                    let [a, b, c, d, e, f] = numbers::<6>(doc, object)?;
+                    Matrix { a, b, c, d, e, f }
+                }
+                Err(_) => Matrix::IDENTITY,
+            };
+            (bbox, matrix.mul(&ctm))
+        }
+        b"Image" => ([0.0, 0.0, 1.0, 1.0], ctm),
+        subtype => return Err(anyhow!("unsupported XObject subtype: {subtype:?}")),
+    };
+    let [x0, y0, x1, y1] = bbox;
+    // Opposite corners alone are insufficient for rotations and shears.
+    let corners = [(x0, y0), (x0, y1), (x1, y0), (x1, y1)].map(|(x, y)| transform.apply(x, y));
+    let left = corners.iter().map(|p| p.0).fold(f64::INFINITY, f64::min);
+    let bottom = corners.iter().map(|p| p.1).fold(f64::INFINITY, f64::min);
+    let right = corners
+        .iter()
+        .map(|p| p.0)
+        .fold(f64::NEG_INFINITY, f64::max);
+    let top = corners
+        .iter()
+        .map(|p| p.1)
+        .fold(f64::NEG_INFINITY, f64::max);
+    Ok(PdfImage {
+        name: String::from_utf8_lossy(name).into_owned(),
+        x: left,
+        y: bottom,
+        w: right - left,
+        h: top - bottom,
+    })
+}
+
 fn media_box(doc: &Document, page_id: ObjectId) -> Result<(f64, f64)> {
     let mut id = page_id;
     for _ in 0..16 {
@@ -266,10 +344,15 @@ fn decimals_of(o: &Object) -> usize {
 
 pub fn extract(path: &Path) -> Result<Vec<PdfPage>> {
     let doc = Document::load(path).with_context(|| format!("loading {}", path.display()))?;
+    extract_document(&doc)
+}
+
+fn extract_document(doc: &Document) -> Result<Vec<PdfPage>> {
     let mut pages = Vec::new();
     for (num, page_id) in doc.get_pages() {
-        let (width, height) = media_box(&doc, page_id)?;
-        let fonts = page_fonts(&doc, page_id)?;
+        let (width, height) = media_box(doc, page_id)?;
+        let fonts = page_fonts(doc, page_id)?;
+        let xobjects = page_xobjects(doc, page_id)?;
         let data = doc.get_page_content(page_id)?;
         let content = Content::decode(&data)?;
         let mut page = PdfPage {
@@ -472,19 +555,11 @@ pub fn extract(path: &Path) -> Result<Vec<PdfPage>> {
                     path_start = None;
                 }
                 "Do" if ops.len() == 1 => {
-                    // unit square mapped by the CTM
-                    let (x0, y0) = ctm.apply(0.0, 0.0);
-                    let (x1, y1) = ctm.apply(1.0, 1.0);
-                    page.images.push(PdfImage {
-                        name: ops[0]
-                            .as_name()
-                            .map(|n| String::from_utf8_lossy(n).to_string())
-                            .unwrap_or_default(),
-                        x: x0.min(x1),
-                        y: y0.min(y1),
-                        w: (x1 - x0).abs(),
-                        h: (y1 - y0).abs(),
-                    });
+                    let name = ops[0].as_name()?;
+                    let dict = xobjects.get(name).ok_or_else(|| {
+                        anyhow!("missing XObject {}", String::from_utf8_lossy(name))
+                    })?;
+                    page.images.push(xobject_image(doc, name, dict, ctm)?);
                 }
                 "re" if ops.len() == 4 => {
                     let (x, y, w, h) = (f(&ops[0])?, f(&ops[1])?, f(&ops[2])?, f(&ops[3])?);
@@ -517,4 +592,84 @@ pub fn extract(path: &Path) -> Result<Vec<PdfPage>> {
         pages.push(page);
     }
     Ok(pages)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lopdf::{dictionary, Stream};
+
+    #[test]
+    fn included_pdf_figure_uses_form_bbox_matrix_and_inherited_resources() {
+        let mut doc = Document::with_version("1.5");
+        let pages = doc.new_object_id();
+        let bbox = doc.add_object(Object::Array(vec![
+            10.into(),
+            20.into(),
+            110.into(),
+            70.into(),
+        ]));
+        let matrix = doc.add_object(Object::Array(vec![
+            0.into(),
+            1.into(),
+            (-1).into(),
+            0.into(),
+            5.into(),
+            7.into(),
+        ]));
+        let figure = doc.add_object(Stream::new(
+            dictionary! {
+                "Type" => "XObject", "Subtype" => "Form", "BBox" => bbox,
+                "Matrix" => matrix, "Resources" => dictionary! {},
+            },
+            b"10 20 100 50 re f".to_vec(),
+        ));
+        let identity_form = doc.add_object(Stream::new(dictionary! {
+            "Type" => "XObject", "Subtype" => "Form", "BBox" => vec![10.into(), 20.into(), 110.into(), 70.into()],
+            "Resources" => dictionary! {},
+        }, b"10 20 100 50 re f".to_vec()));
+        let bitmap = doc.add_object(Stream::new(
+            dictionary! {
+                "Type" => "XObject", "Subtype" => "Image", "Width" => 1, "Height" => 1,
+                "ColorSpace" => "DeviceGray", "BitsPerComponent" => 8,
+            },
+            vec![0],
+        ));
+        let xobjects = doc.add_object(
+            dictionary! { "Figure" => figure, "Plain" => identity_form, "Bitmap" => bitmap },
+        );
+        let resources = doc.add_object(dictionary! { "XObject" => xobjects });
+        let content = doc.add_object(Stream::new(
+            dictionary! {},
+            b"q 2 0 0 3 100 200 cm /Figure Do Q /Plain Do q 2 1 -1 2 10 20 cm /Bitmap Do Q"
+                .to_vec(),
+        ));
+        let page = doc
+            .add_object(dictionary! { "Type" => "Page", "Parent" => pages, "Contents" => content });
+        doc.objects.insert(pages, Object::Dictionary(dictionary! {
+            "Type" => "Pages", "Kids" => vec![page.into()], "Count" => 1,
+            "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()], "Resources" => resources,
+        }));
+        let catalog = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages });
+        doc.trailer.set("Root", catalog);
+        // Round-trip an actual PDF containing the included vector figure.
+        let mut bytes = Vec::new();
+        doc.save_to(&mut bytes).unwrap();
+        let doc = Document::load_mem(&bytes).unwrap();
+        let page = extract_document(&doc).unwrap().remove(0);
+        assert_eq!(page.images.len(), 3);
+        let rects: Vec<_> = page
+            .images
+            .iter()
+            .map(|im| (im.x, im.y, im.w, im.h))
+            .collect();
+        assert_eq!(
+            rects,
+            [
+                (-30.0, 251.0, 100.0, 300.0),
+                (10.0, 20.0, 100.0, 50.0),
+                (9.0, 20.0, 3.0, 3.0)
+            ]
+        );
+    }
 }
