@@ -580,7 +580,12 @@ pub(super) fn deliver_layout(
                         }
                         let _ = std::fs::copy(&cap.log, bg.join(format!("{}.log", cap.jobname)));
                     }
-                    Err(e) => log::warn!("layout PDF copy: {e}"),
+                    Err(e) => {
+                        // install() initially points at the pass output, which the next pass
+                        // can rewrite. Never expose that mutable file to the host.
+                        layout.pdf = None;
+                        log::warn!("layout PDF copy: {e}");
+                    }
                 }
                 c
             }
