@@ -21,3 +21,4 @@ serde_json.workspace = true
 env_logger.workspace = true
 log.workspace = true
 regex.workspace = true
+base64 = "0.22"

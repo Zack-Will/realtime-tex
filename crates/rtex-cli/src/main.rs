@@ -102,6 +102,9 @@ enum Cmd {
         /// unchanged ones from an earlier pass's PDF.
         #[arg(long)]
         no_picture_cache: bool,
+        /// Send binary display lists as dl_b64 (standard padded base64) in JSON events.
+        #[arg(long)]
+        binary_dl: bool,
         /// Write diagnostics here: a bundle per engine failure (request source, context,
         /// server log and stage trace) and one line per live compile in requests.log
         /// (default: $RTEX_DEBUG_DIR when set).
@@ -263,16 +266,24 @@ fn main() -> anyhow::Result<()> {
             fast_budget_ms,
             eligibility,
             no_picture_cache,
+            binary_dl,
             debug_dir,
-        } => serve::run(
-            project,
-            main,
-            build,
-            fast_budget_ms,
-            &eligibility,
-            !no_picture_cache,
-            debug_dir,
-        )?,
+        } => {
+            let mut cfg = rtex_core::SessionConfig::new(project, main);
+            cfg.fast_budget = std::time::Duration::from_millis(fast_budget_ms);
+            cfg.picture_cache = !no_picture_cache;
+            if debug_dir.is_some() {
+                cfg.debug_dir = debug_dir;
+            }
+            cfg.eligibility =
+                rtex_core::session::EligibilityMode::parse(&eligibility).ok_or_else(|| {
+                    anyhow::anyhow!("--eligibility: probe or allowlist, not {eligibility:?}")
+                })?;
+            if let Some(b) = build {
+                cfg.build_dir = b;
+            }
+            serve::run(cfg, binary_dl)?;
+        }
         Cmd::Edit {
             project,
             main,

@@ -117,7 +117,9 @@ Inside TeX, the encoder is `tex/rtex-dl-bin.lua`.
 ## JSON form
 
 `rtex dl2json <file>` and `rtex_dl_to_json` turn the binary form into JSON with the same
-content. `rtex serve` sends display lists in this form.
+content. `rtex serve` sends display lists in this form by default. With `--binary-dl`, each
+`dl` field becomes `dl_b64`: standard padded base64 of the binary format above,
+inside the same JSON-lines event. This applies to paragraph and changed-page lists.
 
 ```json
 {

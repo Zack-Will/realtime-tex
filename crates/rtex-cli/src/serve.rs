@@ -2,31 +2,14 @@
 //! Commands on stdin (one JSON object per line); events and replies on stdout.
 
 use anyhow::Result;
+use base64::{engine::general_purpose::STANDARD, Engine};
+use rtex_core::Event;
 use rtex_core::{Edit, Session, SessionConfig};
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
 use std::time::Duration;
 
-pub fn run(
-    project: PathBuf,
-    main: String,
-    build: Option<PathBuf>,
-    fast_budget_ms: u64,
-    eligibility: &str,
-    picture_cache: bool,
-    debug_dir: Option<PathBuf>,
-) -> Result<()> {
-    let mut cfg = SessionConfig::new(project, main);
-    cfg.fast_budget = std::time::Duration::from_millis(fast_budget_ms);
-    cfg.picture_cache = picture_cache;
-    if debug_dir.is_some() {
-        cfg.debug_dir = debug_dir;
-    }
-    cfg.eligibility = rtex_core::session::EligibilityMode::parse(eligibility)
-        .ok_or_else(|| anyhow::anyhow!("--eligibility: probe or allowlist, not {eligibility:?}"))?;
-    if let Some(b) = build {
-        cfg.build_dir = b;
-    }
+pub fn run(cfg: SessionConfig, binary_dl: bool) -> Result<()> {
     let session = Session::open(cfg)?;
     let stdout = std::io::stdout();
     let (tx, rx) = std::sync::mpsc::channel::<String>();
@@ -37,7 +20,7 @@ pub fn run(
         let tx = tx.clone();
         std::thread::spawn(move || loop {
             for e in s.poll(Duration::from_millis(100)) {
-                if tx.send(serde_json::to_string(&e).unwrap()).is_err() {
+                if tx.send(event_json(&e, binary_dl)).is_err() {
                     return;
                 }
             }
@@ -142,6 +125,34 @@ pub fn run(
     Ok(())
 }
 
+/// Keep JSON-lines framing in both modes. Only the display-list payload fields change.
+fn event_json(event: &Event, binary_dl: bool) -> String {
+    if !binary_dl {
+        return serde_json::to_string(event).unwrap();
+    }
+    let mut value = serde_json::to_value(event).unwrap();
+    let replace_dl = |object: &mut serde_json::Value, dl: &rtex_dl::DisplayList| {
+        let object = object.as_object_mut().unwrap();
+        object.remove("dl");
+        object.insert("dl_b64".into(), STANDARD.encode(dl.to_binary()).into());
+    };
+    match event {
+        Event::ParagraphUpdate { dl, .. } => replace_dl(&mut value, dl),
+        Event::LayoutUpdate { pages_changed, .. } => {
+            for (value, page) in value["pages_changed"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .zip(pages_changed)
+            {
+                replace_dl(value, &page.dl);
+            }
+        }
+        _ => {}
+    }
+    value.to_string()
+}
+
 /// `rtex edit`: open a session, wait for the first layout, apply one edit, print the paragraph
 /// update (or the background routing) and exit.
 pub fn edit_once(
@@ -237,4 +248,105 @@ pub fn edit_once(
     }
     session.close();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rtex_core::document::ParaId;
+    use rtex_core::session::{CompileStatus, PageUpdate, Timing, Versions};
+    use rtex_core::Convergence;
+    use rtex_dl::DisplayList;
+
+    fn check(event: Event) {
+        let json = event_json(&event, false);
+        assert_eq!(json, serde_json::to_string(&event).unwrap());
+        let mut compact: serde_json::Value =
+            serde_json::from_str(&event_json(&event, true)).unwrap();
+        let normal: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let restore = |value: &mut serde_json::Value, expected: &serde_json::Value| {
+            let bytes = STANDARD.decode(value["dl_b64"].as_str().unwrap()).unwrap();
+            let dl = DisplayList::from_binary(&bytes).unwrap();
+            assert_eq!(
+                dl,
+                serde_json::from_value::<DisplayList>(expected["dl"].clone()).unwrap()
+            );
+            let object = value.as_object_mut().unwrap();
+            assert!(object.remove("dl").is_none());
+            object.remove("dl_b64");
+            object.insert("dl".into(), serde_json::to_value(dl).unwrap());
+        };
+        match event {
+            Event::ParagraphUpdate { .. } => restore(&mut compact, &normal),
+            Event::LayoutUpdate { .. } => {
+                for (value, expected) in compact["pages_changed"]
+                    .as_array_mut()
+                    .unwrap()
+                    .iter_mut()
+                    .zip(normal["pages_changed"].as_array().unwrap())
+                {
+                    restore(value, expected);
+                }
+            }
+            _ => {}
+        }
+        assert_eq!(compact, normal);
+    }
+
+    fn dl(kind: &str) -> DisplayList {
+        serde_json::from_value(serde_json::json!({
+            "kind": kind, "unit": "sp", "width": 100, "height": 20, "flags": {},
+            "other": [["r", 10, 20, 30, 40], ["i", 1, 50, 60, 70, 80]],
+            "images_info": {"1": {"file": "figure.pdf", "page": 1, "pages": 1}},
+            "lines": []
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn binary_display_lists_equal_json_for_paragraphs_and_pages() {
+        check(Event::ParagraphUpdate {
+            par_id: ParaId(1),
+            edit_id: 2,
+            versions: Versions::default(),
+            status: "ok".into(),
+            reasons: vec![],
+            fragments: vec![],
+            pagination_stale: false,
+            context_stale: false,
+            dl: dl("paragraph"),
+            diagnostics: vec![],
+            timing: Timing::default(),
+        });
+        check(Event::LayoutUpdate {
+            versions: Versions::default(),
+            compile: CompileStatus::Ok,
+            convergence: Convergence::Converged,
+            passes: 1,
+            pages_changed: vec![
+                PageUpdate {
+                    page: 1,
+                    exact: true,
+                    hash: 42,
+                    dl: dl("page"),
+                },
+                PageUpdate {
+                    page: 2,
+                    exact: true,
+                    hash: 43,
+                    dl: dl("page"),
+                },
+            ],
+            pages_total: 2,
+            placements: vec![],
+            eligible_paragraphs: vec![],
+            pdf_fallback: None,
+            wall_ms: 10,
+        });
+        check(Event::EngineState {
+            engine_generation: 1,
+            state: "Ready".into(),
+            reason: None,
+        });
+    }
 }
