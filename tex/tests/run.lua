@@ -40,7 +40,8 @@ check("expansion 2%", dl.round_xn_over_d(431102, 1020000, 1000000) == 439724)
 
 -- Output routines can nest: @outputdblcol calls @outputpage. Do not restore
 -- a body unit's attribute until the outermost output hook has returned.
-local saved_kpse, saved_luatexbase = kpse, luatexbase
+local saved_kpse, saved_luatexbase, saved_token = kpse, luatexbase, token
+token = { create = function() return { mode = 1 } end }
 kpse = { find_file = function(name) return "tex/" .. name end }
 luatexbase = { new_attribute = function() return 7 end }
 local attr
@@ -53,6 +54,6 @@ capture.output_end()
 check("nested output keeps unit attribute unset", capture.in_output and attr < 0)
 capture.output_end()
 check("outer output restores body unit attribute", not capture.in_output and attr == 42)
-kpse, luatexbase = saved_kpse, saved_luatexbase
+kpse, luatexbase, token = saved_kpse, saved_luatexbase, saved_token
 
 if failures > 0 then print(failures .. " failure(s)"); os.exit(1) else print("all Lua tests passed") end

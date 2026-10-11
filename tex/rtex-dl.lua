@@ -269,6 +269,24 @@ function State:usefont(f)
   if not self.fonts[f] then self.fonts[f] = font_descriptor(f) end
 end
 
+-- An output routine may replace its packing command after hooks were installed
+-- (balance does this). A wrapper inheriting one unit's attribute can contain
+-- rows of several other units; descend into it instead of treating it as a row.
+local function contains_other_unit(head, unit, st)
+  local n = head
+  while n do
+    local id = getid(n)
+    if id == hlist_id or id == vlist_id then
+      local u = getattribute(n, st.attr_unit)
+      local p = getattribute(n, st.attr_par)
+      if u and u >= 0 and u ~= unit and p and p >= 0 then return true end
+      if contains_other_unit(getlist(n), unit, st) then return true end
+    end
+    n = getnext(n)
+  end
+  return false
+end
+
 local hlist_out, vlist_out
 
 -- Walk an hlist's content list. Returns final cur_h. `walk` is re-entered for disc replace lists.
@@ -453,7 +471,12 @@ hlist_out = function(st, box, left, base_v)
         local pic = note_pic(st, n, cur_h, base_v, w, h - sh, d + sh)
         if pic then st.pic_in = st.pic_in + 1 end
         if par and par >= 0 and id == hlist_id and not st.cur then
-          st:begin_line(n, par, line, cur_h, base_v + sh, w, h, d)
+          -- Balanced columns (and other wrappers) can expose tagged paragraph
+          -- rows through an hlist. Keep their unit just as vlist_out does.
+          local unit = st.attr_unit and getattribute(n, st.attr_unit)
+          if unit and unit < 0 then unit = nil end
+          if st.is_insert and st.is_insert(par, unit) then unit = nil end
+          st:begin_line(n, par, line, cur_h, base_v + sh, w, h, d, unit)
           hlist_out(st, n, cur_h, base_v + sh)
           st:end_line()
         elseif id == hlist_id then
@@ -584,6 +607,7 @@ vlist_out = function(st, box, left, top)
             end
           end
         end
+        if is_row and unit and contains_other_unit(getlist(n), unit, st) then is_row = false end
         if is_row then
           st:begin_line(n, par or 0, line or (st.nlines or #st.lines) + 1, left + s, cur_v, w, h, d, unit)
           hlist_out(st, n, left + s, cur_v)

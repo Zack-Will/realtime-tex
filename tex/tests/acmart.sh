@@ -8,7 +8,7 @@ mkdir -p "$scratch"
 export RTEX_TEXDIR="$root/tex"
 export TEXINPUTS="$root/tex/latex//:${TEXINPUTS:-}"
 export LUAINPUTS="$root/tex//:${LUAINPUTS:-}"
-rtex verify --project "$root/fixtures/corpus/acmart" --build "$scratch/verify" --min-eligible 5
+rtex verify --project "$root/fixtures/corpus/acmart" --build "$scratch/verify" --min-eligible 16
 log="$scratch/verify/capture/main.log"
 if grep -q 'Class acmart Error' "$log"; then echo 'FAIL acmart class errors'; exit 1; fi
 echo 'ok   acmart capture: zero class errors; verify passed'
