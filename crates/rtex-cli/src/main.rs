@@ -95,6 +95,9 @@ enum Cmd {
         /// times in a row goes to the background path until the next layout (default 50).
         #[arg(long, default_value_t = 50)]
         fast_budget_ms: u64,
+        /// Maximum wait for a background pass during continuous edits (0: wait for quiet).
+        #[arg(long, default_value_t = 0)]
+        debounce_max_wait_ms: u64,
         /// How units qualify for the fast path: probe (default) or allowlist.
         #[arg(long, default_value = "probe")]
         eligibility: String,
@@ -261,18 +264,28 @@ fn main() -> anyhow::Result<()> {
             main,
             build,
             fast_budget_ms,
+            debounce_max_wait_ms,
             eligibility,
             no_picture_cache,
             debug_dir,
-        } => serve::run(
-            project,
-            main,
-            build,
-            fast_budget_ms,
-            &eligibility,
-            !no_picture_cache,
-            debug_dir,
-        )?,
+        } => {
+            let mut cfg = rtex_core::SessionConfig::new(project, main);
+            cfg.fast_budget = std::time::Duration::from_millis(fast_budget_ms);
+            cfg.debounce_max_wait = (debounce_max_wait_ms != 0)
+                .then(|| std::time::Duration::from_millis(debounce_max_wait_ms));
+            cfg.picture_cache = !no_picture_cache;
+            if debug_dir.is_some() {
+                cfg.debug_dir = debug_dir;
+            }
+            cfg.eligibility =
+                rtex_core::session::EligibilityMode::parse(&eligibility).ok_or_else(|| {
+                    anyhow::anyhow!("--eligibility: probe or allowlist, not {eligibility:?}")
+                })?;
+            if let Some(b) = build {
+                cfg.build_dir = b;
+            }
+            serve::run(cfg)?;
+        }
         Cmd::Edit {
             project,
             main,

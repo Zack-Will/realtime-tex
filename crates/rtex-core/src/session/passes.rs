@@ -8,35 +8,42 @@ use super::*;
 // ---------------------------------------------------------------------------------------------
 pub(super) fn background_thread(s: Arc<Shared>) {
     prepare_standby(&s);
+    // Preserve an explicit request across pause/resume, including a pause during debounce.
+    let mut immediate = false;
     while let Ok(cmd) = s.bg_signal.1.recv() {
         match cmd {
             BgCmd::Quit => break,
             BgCmd::Export(job, out) => run_export(&s, job, out),
-            BgCmd::Pass => {
+            BgCmd::Pass | BgCmd::PassNow => {
+                immediate |= matches!(cmd, BgCmd::PassNow);
                 if s.bg_paused.load(Ordering::SeqCst) {
                     s.bg_pending_while_paused.store(true, Ordering::SeqCst);
                     continue;
                 }
-                // the first pass runs at once; later ones are debounced (drain Pass commands until quiet)
+                // The first layout starts promptly; later passes wait for quiet or max-wait.
                 let debounce = if s.layout.lock().layout_version == 0 {
                     Duration::from_millis(1)
                 } else {
                     s.cfg.debounce
                 };
-                loop {
-                    match s.bg_signal.1.recv_timeout(debounce) {
-                        Ok(BgCmd::Pass) => continue,
-                        Ok(BgCmd::Quit) => return,
-                        Ok(BgCmd::Export(job, out)) => {
-                            run_export(&s, job, out);
-                            continue;
-                        }
-                        Err(_) => break,
-                    }
-                }
+                let Some(now) = wait_for_background_pass(
+                    &s.bg_signal.1,
+                    debounce,
+                    s.cfg.debounce_max_wait,
+                    immediate,
+                    |job, out| run_export(&s, job, out),
+                ) else {
+                    break;
+                };
+                immediate = now;
                 if s.shutdown.load(Ordering::SeqCst) {
                     break;
                 }
+                if s.bg_paused.load(Ordering::SeqCst) {
+                    s.bg_pending_while_paused.store(true, Ordering::SeqCst);
+                    continue;
+                }
+                immediate = false;
                 run_background_pass(&s);
                 prepare_standby(&s);
             }
@@ -44,6 +51,58 @@ pub(super) fn background_thread(s: Arc<Shared>) {
     }
     if let Some(w) = s.standby.lock().take() {
         w.kill();
+    }
+}
+
+/// Coalesce requests before starting a pass. A fixed burst deadline prevents continuous
+/// edits from postponing the pass forever. Explicit requests skip the quiet period and
+/// consume the already queued requests (including those sent during a running pass).
+/// Returns None on shutdown/disconnection, otherwise whether the request was immediate.
+fn wait_for_background_pass(
+    commands: &Receiver<BgCmd>,
+    debounce: Duration,
+    max_wait: Option<Duration>,
+    mut immediate: bool,
+    mut export: impl FnMut(u64, PathBuf),
+) -> Option<bool> {
+    let started = Instant::now();
+    let mut last_pass = started;
+    let max_wait = max_wait.filter(|wait| !wait.is_zero());
+    loop {
+        if immediate || debounce.is_zero() {
+            // Bound the drain to the queue as it stands now: concurrent senders cannot
+            // keep this loop alive, and requests arriving after this belong to the next pass.
+            for _ in 0..commands.len() {
+                match commands.try_recv() {
+                    Ok(BgCmd::Pass) => {}
+                    Ok(BgCmd::PassNow) => immediate = true,
+                    Ok(BgCmd::Export(job, out)) => export(job, out),
+                    Ok(BgCmd::Quit) => return None,
+                    Err(crossbeam_channel::TryRecvError::Disconnected) => return None,
+                    Err(crossbeam_channel::TryRecvError::Empty) => break,
+                }
+            }
+            return Some(immediate);
+        }
+        let quiet_remaining = debounce.saturating_sub(last_pass.elapsed());
+        let remaining = max_wait
+            .map(|wait| quiet_remaining.min(wait.saturating_sub(started.elapsed())))
+            .unwrap_or(quiet_remaining);
+        if remaining.is_zero() {
+            return Some(false);
+        }
+        match commands.recv_timeout(remaining) {
+            Ok(BgCmd::Pass) => last_pass = Instant::now(),
+            Ok(BgCmd::PassNow) => immediate = true,
+            Ok(BgCmd::Export(job, out)) => {
+                export(job, out);
+                // Preserve the quiet period after an export; the burst deadline stays fixed.
+                last_pass = Instant::now();
+            }
+            Ok(BgCmd::Quit) => return None,
+            Err(crossbeam_channel::RecvTimeoutError::Disconnected) => return None,
+            Err(crossbeam_channel::RecvTimeoutError::Timeout) => return Some(false),
+        }
     }
 }
 
@@ -854,6 +913,125 @@ pub(super) fn run_export(s: &Shared, job: u64, out: PathBuf) {
                     passes: 0,
                 })
                 .ok();
+        }
+    }
+}
+
+#[cfg(test)]
+mod scheduler_tests {
+    use super::*;
+
+    #[test]
+    fn queued_explicit_requests_coalesce_after_a_running_pass() {
+        let (tx, rx) = unbounded();
+        // These commands accumulate while the worker is busy compiling the previous pass.
+        for _ in 0..20 {
+            tx.send(BgCmd::Pass).unwrap();
+            tx.send(BgCmd::PassNow).unwrap();
+        }
+        assert!(matches!(rx.recv().unwrap(), BgCmd::Pass));
+        let started = Instant::now();
+        assert_eq!(
+            wait_for_background_pass(&rx, Duration::from_secs(5), None, false, |_, _| panic!(
+                "unexpected export"
+            )),
+            Some(true)
+        );
+        assert!(started.elapsed() < Duration::from_millis(100));
+        assert!(
+            rx.is_empty(),
+            "queued requests would cause extra follow-up passes"
+        );
+    }
+
+    #[test]
+    fn zero_debounce_coalesces_queued_passes() {
+        let (tx, rx) = unbounded();
+        for _ in 0..20 {
+            tx.send(BgCmd::Pass).unwrap();
+        }
+        assert_eq!(
+            wait_for_background_pass(&rx, Duration::ZERO, None, false, |_, _| panic!(
+                "unexpected export"
+            )),
+            Some(false)
+        );
+        assert!(rx.is_empty());
+    }
+
+    #[test]
+    fn debounce_without_max_wait_still_waits_for_quiet() {
+        for max_wait in [None, Some(Duration::ZERO)] {
+            let (tx, rx) = unbounded();
+            let started = Instant::now();
+            let sender = std::thread::spawn(move || {
+                for _ in 0..5 {
+                    std::thread::sleep(Duration::from_millis(20));
+                    tx.send(BgCmd::Pass).unwrap();
+                }
+                tx // keep the channel connected through the quiet period
+            });
+            let result = wait_for_background_pass(
+                &rx,
+                Duration::from_millis(80),
+                max_wait,
+                false,
+                |_, _| panic!("unexpected export"),
+            );
+            let _tx = sender.join().unwrap();
+            assert_eq!(result, Some(false));
+            assert!(started.elapsed() >= Duration::from_millis(175));
+        }
+    }
+
+    #[test]
+    fn continuous_requests_cannot_restart_the_max_wait() {
+        let (tx, rx) = unbounded();
+        let sender = std::thread::spawn(move || {
+            for _ in 0..20 {
+                std::thread::sleep(Duration::from_millis(20));
+                tx.send(BgCmd::Pass).unwrap();
+            }
+            tx
+        });
+        let started = Instant::now();
+        let result = wait_for_background_pass(
+            &rx,
+            Duration::from_secs(1),
+            Some(Duration::from_millis(120)),
+            false,
+            |_, _| panic!("unexpected export"),
+        );
+        let elapsed = started.elapsed();
+        let _tx = sender.join().unwrap();
+        assert_eq!(result, Some(false));
+        assert!(elapsed >= Duration::from_millis(120));
+        assert!(
+            elapsed < Duration::from_millis(250),
+            "max-wait restarted: {elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn quit_and_exports_are_handled_while_coalescing() {
+        for immediate in [false, true] {
+            let (tx, rx) = unbounded();
+            tx.send(BgCmd::Export(42, PathBuf::from("test.pdf")))
+                .unwrap();
+            tx.send(BgCmd::PassNow).unwrap();
+            tx.send(BgCmd::Quit).unwrap();
+            let mut exports = Vec::new();
+            assert_eq!(
+                wait_for_background_pass(
+                    &rx,
+                    Duration::from_secs(5),
+                    None,
+                    immediate,
+                    |job, out| exports.push((job, out))
+                ),
+                None
+            );
+            assert_eq!(exports, vec![(42, PathBuf::from("test.pdf"))]);
         }
     }
 }

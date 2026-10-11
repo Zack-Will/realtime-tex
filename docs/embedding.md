@@ -86,6 +86,7 @@ briefly. The live engine and the background passes run on their own threads.
 | `main_file` | `main_file` | `--main` | `main.tex` | main file, relative to the root |
 | `build_dir` | `build_dir` | `--build` | `<root>/build/rtex` | where passes, logs and PDFs go |
 | `debounce` | `debounce_ms` | | 300 ms | quiet time before a background pass starts |
+| `debounce_max_wait` | `debounce_max_wait_ms` | `--debounce-max-wait-ms` | `None` / 0 (disabled) | maximum debounce time from the first pass request in a burst, even during continuous edits; does not interrupt a running pass or export |
 | `max_passes` | `max_passes` | | 5 | passes per layout before giving up (`PassLimitReached`) |
 | `fast_budget` | `fast_budget_ms` | `--fast-budget-ms` | 50 ms | a unit slower than this three times in a row waits for the pass |
 | `compile_timeout` | `compile_timeout_ms` | | 5 s | a live compile that takes longer is killed and the engine restarted |
@@ -97,6 +98,13 @@ briefly. The live engine and the background passes run on their own threads.
 | `fast_on_stale_context` | `fast_on_stale_context` | | on | deliver live results even when something before the unit changed since the last pass |
 | `bib_tool` | | | auto | `biber`, `bibtex` or none; auto picks from the files the pass writes |
 | `debug_dir` | `debug_dir` | `--debug-dir` | `$RTEX_DEBUG_DIR` | write a diagnostic bundle per engine failure ([development.md](development.md#when-the-live-engine-fails)) |
+
+With max-wait disabled, edits postpone a background pass until the quiet period ends.
+Set a positive max-wait to keep layouts arriving during continuous typing. A layout also
+needs the time spent compiling the pass; max-wait bounds the debounce, not compilation.
+`request_layout()` bypasses the debounce. Requests made during a running pass coalesce
+into one immediate follow-up pass. `pause_background(true)` holds both kinds of request
+until resumed; it does not interrupt a pass already running.
 
 ## Events
 
