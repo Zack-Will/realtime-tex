@@ -40,6 +40,9 @@ pub struct SessionConfig {
     pub main_file: String,
     pub build_dir: PathBuf,
     pub debounce: Duration,
+    /// Maximum debounce time from the first queued pass; None or zero waits for quiet.
+    /// Does not interrupt a running pass or export.
+    pub debounce_max_wait: Option<Duration>,
     pub max_passes: u32,
     pub trusted_macros: Vec<String>,
     pub fast_on_stale_context: bool,
@@ -131,6 +134,7 @@ impl SessionConfig {
             project_root,
             main_file: main_file.into(),
             debounce: Duration::from_millis(300),
+            debounce_max_wait: None,
             max_passes: 5,
             trusted_macros: Vec::new(),
             fast_on_stale_context: true,
@@ -383,6 +387,7 @@ struct Shared {
 
 enum BgCmd {
     Pass,
+    PassNow,
     Export(u64, PathBuf),
     Quit,
 }
@@ -915,8 +920,10 @@ impl Session {
             .push((rev, line));
     }
 
+    /// Start a background pass without debouncing, or queue one after the running pass.
+    /// Requests remain deferred while background work is paused.
     pub fn request_layout(&self) {
-        self.schedule_background();
+        self.schedule_background_with(BgCmd::PassNow);
     }
 
     /// Defer background passes (they run when resumed). The fast path keeps working.
@@ -933,10 +940,14 @@ impl Session {
     }
 
     fn schedule_background(&self) {
+        self.schedule_background_with(BgCmd::Pass);
+    }
+
+    fn schedule_background_with(&self, cmd: BgCmd) {
         *self.shared.convergence.lock() = Some(Convergence::Stale {
             pending_since: self.shared.source_revision.load(Ordering::SeqCst),
         });
-        self.shared.bg_signal.0.send(BgCmd::Pass).ok();
+        self.shared.bg_signal.0.send(cmd).ok();
     }
 
     /// Load from disk every file the tracked files now `\input` that is not tracked yet.

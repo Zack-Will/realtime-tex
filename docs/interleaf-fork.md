@@ -10,6 +10,7 @@ Every topic starts at `v0.0.3` (`1f68183`). `interleaf` combines them with
 | `feat/layout-pass-pdf` | Opt-in `SessionConfig.pass_pdf`, C JSON `pass_pdf`, `serve --pass-pdf`; stable PDF retained through two later layouts | not yet proposed |
 | `fix/verify-form-bbox` | Compare included PDF figures using Form XObject BBox and Matrix, including four-corner bounds | not yet proposed |
 | `feat/serve-binary-dl` | Opt-in `serve --binary-dl`: standard padded base64 in `dl_b64`, retaining JSON-lines framing | not yet proposed |
+| `feat/debounce-max-wait` | Opt-in maximum background debounce wait, immediate layout requests, coalescing and pause/resume regressions | not yet proposed |
 | `ci/interleaf-release` | Linux release build and publication after the existing Linux CI suite | not yet proposed (fork-only; no upstream proposal planned) |
 
 The integration branch also carries this document and any merge resolutions.

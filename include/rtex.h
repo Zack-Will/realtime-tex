@@ -25,7 +25,7 @@ enum RtexEventKind {
 
 const char *rtex_version(void);
 
-/* config_json: {"project_root":"…","main_file":"main.tex","build_dir":"…","debounce_ms":300,
+/* config_json: {"project_root":"…","main_file":"main.tex","build_dir":"…","debounce_ms":300,"debounce_max_wait_ms":0,
  *               "max_passes":5,"fast_budget_ms":50,"compile_timeout_ms":5000,"eligibility":"probe",
  *               "trusted_macros":["…"],"unit_envs":["…"],"picture_cache":true,"warm_background":true,"pass_pdf":false,
  *               "fast_on_stale_context":true,"debug_dir":"…"}   (only project_root is required)

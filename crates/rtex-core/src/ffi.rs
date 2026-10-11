@@ -35,7 +35,7 @@ pub extern "C" fn rtex_version() -> *const c_char {
 }
 
 /// Open a session. `config_json`: {"project_root": "...", "main_file": "main.tex",
-/// "build_dir": "...", "debounce_ms": 300, "max_passes": 5, "trusted_macros": [...],
+/// "build_dir": "...", "debounce_ms": 300, "debounce_max_wait_ms": 0, "max_passes": 5, "trusted_macros": [...],
 /// "fast_on_stale_context": true, "compile_timeout_ms": 5000, "fast_budget_ms": 50, "unit_envs": [...], "warm_background": true, "eligibility": "probe"|"allowlist", "picture_cache": true, "pass_pdf": false, "debug_dir": "/path"}. On failure returns null and
 /// writes an error message to `*err_out` (free with rtex_string_free).
 #[no_mangle]
@@ -70,6 +70,11 @@ pub unsafe extern "C" fn rtex_session_open(
     if let Some(ms) = v.get("debounce_ms").and_then(|x| x.as_u64()) {
         cfg.debounce = Duration::from_millis(ms);
     }
+    cfg.debounce_max_wait = v
+        .get("debounce_max_wait_ms")
+        .and_then(|x| x.as_u64())
+        .filter(|ms| *ms != 0)
+        .map(Duration::from_millis);
     if let Some(n) = v.get("max_passes").and_then(|x| x.as_u64()) {
         cfg.max_passes = n as u32;
     }
