@@ -1,0 +1,60 @@
+name: interleaf release
+on:
+  push:
+    tags: ["interleaf-*"]
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    uses: ./.github/workflows/ci.yml
+    with:
+      linux_only: true
+
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: dist-x86_64-unknown-linux-gnu
+      - run: cargo build --profile dist --locked --target x86_64-unknown-linux-gnu -p rtex-cli -p rtex-core
+      - run: scripts/package.sh x86_64-unknown-linux-gnu
+      - name: Smoke test (the packaged rtex finds its support files)
+        run: |
+          set +e
+          out="$(dist/rtex-*-x86_64-unknown-linux-gnu/bin/rtex doctor)"
+          code=$?
+          set -e
+          echo "$out"
+          [ "$code" -eq 0 ] || [ "$code" -eq 2 ]
+          echo "$out" | grep -E "support files: .*share.rtex.tex"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: interleaf-linux-x86_64
+          path: |
+            dist/rtex-x86_64-unknown-linux-gnu.tar.gz
+            dist/rtex-x86_64-unknown-linux-gnu.tar.gz.sha256
+          if-no-files-found: error
+
+  publish:
+    needs: [tests, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: interleaf-linux-x86_64
+          path: dist
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: |
+            dist/rtex-x86_64-unknown-linux-gnu.tar.gz
+            dist/rtex-x86_64-unknown-linux-gnu.tar.gz.sha256
+          fail_on_unmatched_files: true
