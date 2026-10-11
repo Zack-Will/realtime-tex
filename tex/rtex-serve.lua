@@ -427,8 +427,9 @@ end
 
 -- graphicx hook (driver): image resource index -> file
 S.images = {}
+function S.image_from_box() P.image_from_box(S) end
 function S.image(index, file, page, pages)
-  S.images[tostring(index)] = { index = index, file = file, page = tonumber(page) or 1, pages = pages }
+  P.record_image(S, "rtex_serve", index, file, page, pages)
   S.images_used = true
 end
 

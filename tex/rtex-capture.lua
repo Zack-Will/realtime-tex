@@ -422,8 +422,9 @@ function C.post_linebreak(head, groupcode)
 end
 
 C.images = {}
+function C.image_from_box() P.image_from_box(C) end
 function C.image(index, file, page, pages)
-  C.images[tostring(index)] = { index = index, file = file, page = tonumber(page) or 1, pages = pages }
+  P.record_image(C, "rtex_capture", index, file, page, pages)
 end
 
 -- Rows of a paragraph unit that come from a deeper paragraph (nest >= 2) reached through

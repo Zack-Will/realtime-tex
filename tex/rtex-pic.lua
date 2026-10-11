@@ -90,4 +90,24 @@ function P.write(c, cached)
   node.write(n)
 end
 
+-- TeX's image resource number is a PDF object number; image-rule nodes carry
+-- the image array index instead. Make an unshipped node to obtain that index.
+-- This also works when graphicx reuses an earlier resource from its cache.
+function P.record_image(c, namespace, index, file, page, pages)
+  c.image_pending = { file = file, page = tonumber(page) or 1, pages = pages }
+  local hash = token.get_macro("Gin@attr@hash") or ""
+  local command = token.get_macro(file .. " image" .. hash) or ("\\useimageresource " .. index)
+  tex.sprint(c.cct, "\\begingroup\\setbox0=\\hbox{" .. command ..
+    "}\\directlua{" .. namespace .. ".image_from_box()}\\endgroup")
+end
+function P.image_from_box(c)
+  local n = tex.box[0] and node.tail(tex.box[0].list)
+  local info = c.image_pending
+  c.image_pending = nil
+  if n and info then
+    info.index = n.index
+    c.images[tostring(n.index)] = info
+  end
+end
+
 return P
