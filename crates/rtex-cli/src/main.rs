@@ -105,6 +105,9 @@ enum Cmd {
         /// Report the stable pass PDF for every layout, including exact pages.
         #[arg(long)]
         pass_pdf: bool,
+        /// Send binary display lists as dl_b64 (standard padded base64) in JSON events.
+        #[arg(long)]
+        binary_dl: bool,
         /// Write diagnostics here: a bundle per engine failure (request source, context,
         /// server log and stage trace) and one line per live compile in requests.log
         /// (default: $RTEX_DEBUG_DIR when set).
@@ -267,6 +270,7 @@ fn main() -> anyhow::Result<()> {
             eligibility,
             no_picture_cache,
             pass_pdf,
+            binary_dl,
             debug_dir,
         } => {
             let mut cfg = rtex_core::SessionConfig::new(project, main);
@@ -283,7 +287,7 @@ fn main() -> anyhow::Result<()> {
             if let Some(b) = build {
                 cfg.build_dir = b;
             }
-            serve::run(cfg)?;
+            serve::run(cfg, binary_dl)?;
         }
         Cmd::Edit {
             project,

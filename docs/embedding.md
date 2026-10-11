@@ -209,6 +209,13 @@ them with `rtex_string_free`. `examples/c/edit_loop.c` is a complete program.
 rtex serve --project /path/to/project
 ```
 
+Add `--binary-dl` to send compact display lists: `ParagraphUpdate.dl` and each
+`LayoutUpdate.pages_changed[].dl` are replaced by `dl_b64`, a standard RFC 4648 base64
+string with padding containing the binary format in [display-list.md](display-list.md).
+Decode the base64 bytes with `rtex_dl::DisplayList::from_binary` (or the host's binary
+decoder). Commands and all other fields are unchanged; stdout still has exactly one
+JSON object per line. Without the flag, display lists remain JSON.
+
 It reads one JSON command per line on stdin and writes replies and events, one JSON object per
 line, on stdout:
 
