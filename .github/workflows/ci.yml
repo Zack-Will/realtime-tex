@@ -3,6 +3,12 @@ on:
   push:
     branches: ["**"]
   pull_request:
+  workflow_call:
+    inputs:
+      linux_only:
+        description: Run only the Linux jobs for a fork release
+        type: boolean
+        default: false
 jobs:
   unit:
     runs-on: ubuntu-24.04
@@ -74,6 +80,7 @@ jobs:
             build/verify.json
             build/verify-units.json
   platforms:
+    if: ${{ !inputs.linux_only }}
     # macOS (Apple silicon) and Windows: build, unit and integration tests against a real
     # TeX Live. Linux runs the full verification above.
     strategy:
@@ -126,6 +133,7 @@ jobs:
           cargo run --release -p rtex-cli -- verify --project build/fx/book-10-pure --json-out build/verify.json
           cargo run --release -p rtex-cli -- export --project build/fx/book-10-pure --out build/export.pdf --check
   windows-miktex:
+    if: ${{ !inputs.linux_only }}
     # Windows with MiKTeX instead of TeX Live: a session with live edits in paths with spaces,
     # non-ASCII characters and a CRLF document (realtime-tex-vsc-plugin#1)
     runs-on: windows-latest
