@@ -297,8 +297,14 @@ mod tests {
         serde_json::from_value(serde_json::json!({
             "kind": kind, "unit": "sp", "width": 100, "height": 20, "flags": {},
             "other": [["r", 10, 20, 30, 40], ["i", 1, 50, 60, 70, 80]],
-            "images_info": {"1": {"file": "figure.pdf", "page": 1, "pages": 1}},
-            "lines": []
+            "images_info": {"1": {"index": 1, "file": "figure.pdf", "page": 1, "pages": 1}},
+            "page": if kind == "page" { Some(1) } else { None },
+            "page_width": if kind == "page" { Some(600) } else { None },
+            "page_height": if kind == "page" { Some(800) } else { None },
+            "origin": if kind == "page" { Some((0, 0)) } else { None },
+            "glyphs": 1,
+            "lines": [{"i": 1, "x": 0, "y": 20, "w": 100, "h": 20, "d": 0,
+                       "items": [["g", 1, 65, 36, 0, 20, 30, 0]]}]
         }))
         .unwrap()
     }
