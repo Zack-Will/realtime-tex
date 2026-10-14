@@ -18,7 +18,13 @@ local INT_PARAMS = { "looseness", "tolerance", "pretolerance", "hyphenpenalty", 
   "widowpenalty", "adjustspacing", "protrudechars", "hangafter" }
 local DIM_PARAMS = { "hsize", "parindent", "emergencystretch", "lineskiplimit", "hangindent", "mathsurround" }
 local GLUE_PARAMS = { "leftskip", "rightskip", "parfillskip", "baselineskip", "lineskip", "spaceskip", "xspaceskip" }
+-- LaTeX's page geometry lengths (registers, not TeX parameters): float boxes, minipages and
+-- \includegraphics use them, and the live engine's idle values can be another layout's (acmart
+-- switches to two columns in \maketitle, which the live engine never runs). Recorded with
+-- the TeX parameters, replayed as register assignments.
+local LATEX_LENGTHS = { "columnwidth", "linewidth", "textwidth", "columnsep" }
 C.INT_PARAMS, C.DIM_PARAMS, C.GLUE_PARAMS = INT_PARAMS, DIM_PARAMS, GLUE_PARAMS
+C.LATEX_LENGTHS = LATEX_LENGTHS
 
 -- Block environments that open a unit when begun in vertical mode. Extra names (theorem-like
 -- environments) come from $RTEX_UNIT_ENVS.
@@ -152,6 +158,10 @@ local function params()
   local ints, dims, glues = {}, {}, {}
   for _, k in ipairs(INT_PARAMS) do ints[k] = tex.get(k) end
   for _, k in ipairs(DIM_PARAMS) do dims[k] = tex.get(k) end
+  for _, k in ipairs(LATEX_LENGTHS) do
+    local ok, v = pcall(tex.getdimen, k)
+    if ok then dims[k] = v end
+  end
   for _, k in ipairs(GLUE_PARAMS) do glues[k] = { tex.getglue(k) } end
   return ints, dims, glues
 end

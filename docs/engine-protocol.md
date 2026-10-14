@@ -107,6 +107,9 @@ One per unit, built by the host from the latest capture (`EngineUnit::context_js
 
 - `everypar` must be one of the kernel's own patterns: empty, `\leftprotrusion`, or what
   `\@afterheading`, `\@doendpe` or `\@setminipage` leave. The host refuses anything else.
+- `dims` also holds LaTeX's `\columnwidth`, `\linewidth`, `\textwidth` and `\columnsep`. The
+  server assigns those that differ from its idle values as registers, before a float sets its
+  `\hsize` from them: acmart starts its two columns in `\maketitle`, which the server never runs.
 - `macros` holds the meanings of macros the document body redefines, as `\meaning` prints them,
   and the server replays them as local definitions. For a float it also holds `\@floatboxreset`
   as the float environment set it up (IEEEtran's tables are `\footnotesize`). A `\newif` switch

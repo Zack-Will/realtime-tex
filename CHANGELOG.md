@@ -34,6 +34,11 @@
   headings with copies it saves before `\begin{document}`, and the hooks rtex puts on the
   headings are installed after that. The copies are now brought up to date, unless the document
   changed a heading itself, which is still reported.
+- A table or figure edited live in an acmart document is one column wide, as on the page. acmart
+  switches to two columns in `\maketitle`, which the live engine does not run, so the engine
+  set floats (and anything sized by `\linewidth`) at the full text width and their edits went
+  to the next pass. The capture now records `\columnwidth`, `\linewidth`, `\textwidth` and
+  `\columnsep` with each unit, and the live engine uses them.
 
 ### New
 

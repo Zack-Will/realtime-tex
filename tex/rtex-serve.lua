@@ -119,6 +119,9 @@ local function everypar_allowed(ep)
   return EVERYPAR_PATTERNS[e] or false
 end
 local FLOAT_ENVS = { figure = "columnwidth", table = "columnwidth", ["figure*"] = "textwidth", ["table*"] = "textwidth" }
+-- LaTeX length registers the capture records with the TeX parameters (rtex-capture.lua,
+-- LATEX_LENGTHS): replayed as register assignments, not with tex.set
+local LATEX_LENGTHS = { columnwidth = true, linewidth = true, textwidth = true, columnsep = true }
 -- LaTeX counters (c@<name>) known at start-up; replayed per unit and restored after each compile
 S.counter_names = {}
 S.counter_base = {}
@@ -173,16 +176,25 @@ local function install_context(id, ctx)
     local ok, cur = pcall(tex_get, k)
     if not ok or cur ~= v then ints[#ints + 1] = k; ints[#ints + 1] = v end
   end
+  local lengths = {}
   for k, v in pairs(ctx.dims or {}) do
-    local ok, cur = pcall(tex_get, k)
-    if not ok or cur ~= v then dims[#dims + 1] = k; dims[#dims + 1] = v end
+    if LATEX_LENGTHS[k] then
+      local ok, cur = pcall(tex.getdimen, k)
+      if ok and cur ~= v then lengths[#lengths + 1] = k end
+    else
+      local ok, cur = pcall(tex_get, k)
+      if not ok or cur ~= v then dims[#dims + 1] = k; dims[#dims + 1] = v end
+    end
   end
+  table.sort(lengths)
   for k, v in pairs(ctx.glues or {}) do glues[#glues + 1] = { k, v[1] or 0, v[2] or 0, v[3] or 0, v[4] or 0, v[5] or 0 } end
   ctx.a_ints, ctx.a_dims, ctx.a_glues = ints, dims, glues
   -- tokens after \bgroup: counters (TeX assignments, local to the group; `page` is never
   -- replayed), \if@nobreak and friends, \everypar replay, float-box emulation
   local kind, name = ctx.kind or "par", ctx.name
   local extra = {}
+  -- \columnwidth and friends before the float box below, which takes its \hsize from them
+  for _, k in ipairs(lengths) do extra[#extra + 1] = format("\\%s=%dsp ", k, ctx.dims[k]) end
   local names = {}
   for k, v in pairs(ctx.counters or {}) do
     -- only counters that are valid control words (biblatex has `bbx:relatedcount`), that the
