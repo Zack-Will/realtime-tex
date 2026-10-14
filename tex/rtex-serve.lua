@@ -479,9 +479,10 @@ end
 -- graphicx hook (driver): image resource index -> file
 S.images = {}
 function S.image(index, file, page, pages)
-  S.images[tostring(index)] = { index = index, file = file, page = tonumber(page) or 1, pages = pages }
+  P.record_image(S.images, S.picctl.cct, "rtex_serve", index, file, page, pages)
   S.images_used = true
 end
+S.image_node = P.image_node
 
 -- \marginpar in a unit (hook in rtex-serve-patches.tex): LaTeX refuses it inside the unit box,
 -- so the note never becomes an insert there; it is counted as one, like footnote text, so the

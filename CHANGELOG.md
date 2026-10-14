@@ -39,6 +39,11 @@
   set floats (and anything sized by `\linewidth`) at the full text width and their edits went
   to the next pass. The capture now records `\columnwidth`, `\linewidth`, `\textwidth` and
   `\columnsep` with each unit, and the live engine uses them.
+- The display list's image records name the right file for each image. rtex took an image's
+  index from `\lastsavedimageresourceindex`, which is the resource's PDF object number, not the
+  index the image nodes carry: in a document with hyperref (acmart loads it) no image had a
+  file at all, and an image used a second time was recorded under the previous image's index.
+  The index now comes from an image node made for the `\includegraphics`.
 
 ### New
 

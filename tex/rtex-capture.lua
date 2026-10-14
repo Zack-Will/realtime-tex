@@ -456,8 +456,9 @@ end
 
 C.images = {}
 function C.image(index, file, page, pages)
-  C.images[tostring(index)] = { index = index, file = file, page = tonumber(page) or 1, pages = pages }
+  P.record_image(C.images, C.cct, "rtex_capture", index, file, page, pages)
 end
+C.image_node = P.image_node
 
 -- Rows of a paragraph unit that come from a deeper paragraph (nest >= 2) reached through
 -- vlists only are migrated material: footnote text (\insert), \vadjust, \marginpar. Inside

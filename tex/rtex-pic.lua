@@ -90,4 +90,28 @@ function P.write(c, cached)
   node.write(n)
 end
 
+-- graphicx hook (cmd/Gin@setfile/after): which file an image node's resource index stands for.
+-- \lastsavedimageresourceindex is not that index: it is the last resource saved, so when
+-- graphicx reuses a file's resource (the same file a second time) it names the previous file's,
+-- and the display list records the index image nodes carry. The index is read from an image
+-- node made for this \includegraphics, in a box that is thrown away: from the command
+-- luatex.def keeps for the file (\<file> image<attributes>), or \useimageresource for a new one.
+local pending
+function P.record_image(images, cct, ns, index, file, page, pages)
+  pending = { images = images, info = { file = file, page = tonumber(page) or 1, pages = pages } }
+  local hash = token.get_macro("Gin@attr@hash") or ""
+  local command = token.get_macro(file .. " image" .. hash) or ("\\useimageresource " .. index)
+  tex.sprint(cct, "\\begingroup\\setbox0=\\hbox{" .. command .. "}\\directlua{" .. ns ..
+    ".image_node()}\\endgroup")
+end
+function P.image_node()
+  local p = pending
+  pending = nil
+  local n = tex.box[0] and node.tail(tex.box[0].list)
+  if p and n and n.index then
+    p.info.index = n.index
+    p.images[tostring(n.index)] = p.info
+  end
+end
+
 return P

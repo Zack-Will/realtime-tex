@@ -67,6 +67,7 @@ The integration tests in `crates/rtex-core/tests/`:
 | `twocolumn.rs` | every unit of a two-column document has its lines as rows |
 | `ieeetran.rs` | IEEEtran's own float boxes compiled live equal the full run; its run-in headings wait |
 | `acmart.rs` | the capture does not trip acmart's check that its headings are unchanged; floats live in its two columns |
+| `images.rs` | image items name their files, with hyperref and for a file used twice |
 | `piccache_live.rs` | cached pictures in the live engine |
 | `internal_error.rs` | a Lua error inside the server is answered, not swallowed |
 | `export.rs` | export equals a clean build; errors are reported |
