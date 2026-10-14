@@ -24,6 +24,9 @@ PACKAGES=(
   pgf hyperref csquotes
   enumitem multirow ulem cancel wrapfig titlesec siunitx algorithms algorithmicx framed soul
   pgfplots circuitikz xecjk xypic gensymb regexpatch haranoaji luatexja ieeetran
+  # acmart and what it loads; the fonts are the ones it uses under LuaLaTeX
+  acmart totpages environ hyperxmp ncctools comment preprint libertine inconsolata newtx
+  libertinus-fonts
 )
 
 WINDOWS=0

@@ -83,6 +83,7 @@ From `rtex verify` on 2026-10-10:
 | corpus: counters (`counters`) | 9 of 10 | 948 / 948 | 1 of 1 | |
 | corpus: TikZ document (`pictures`) | 9 of 20 | 750 / 750 | 0 of 3 (drawn from the PDF) | |
 | corpus: IEEEtran journal paper (`ieeetran`) | 18 of 30 | 3 658 / 3 658 | 2 of 2 | |
+| corpus: ACM conference paper (`acmart`) | 31 of 39 | 4 498 / 4 498 | 3 of 3 | |
 
 Worst glyph deviation from the PDF: 0.0005 bp for glyphs placed by a text matrix, and 0.016 bp
 (under one `TJ` unit) for glyphs placed by a `TJ` adjustment.
@@ -94,6 +95,8 @@ entries, and the bibliography. The rest are excluded by design:
 - in the IEEEtran paper, the run-in `\subsubsection` headings, the nomenclature lists that start
   with such a heading's title, and the unit after each run-in paragraph, which starts under the
   heading's `\everypar`;
+- in the ACM paper, the run-in `\subsubsection` and `\paragraph` headings, the units that start
+  under their `\everypar`, and the bibliography with the `\balance` before it;
 - in the TikZ document, the pictures, because `rtex verify` uses the allow-list unless you pass
   `--permissive`. In a session's default probe mode they can go live, and their pages are drawn
   from the PDF.

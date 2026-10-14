@@ -55,6 +55,12 @@
 
 - The corpus has an IEEEtran journal paper (two columns, a nomenclature, run-in headings,
   floats). CI checks that at least 18 of its units are live and that all of them are exact.
+- The corpus has an ACM conference paper (acmart `sigconf`: two columns started by `\maketitle`,
+  run-in headings, a list inside a paragraph, `table`, `figure` and `table*`, balanced last
+  page). CI checks that at least 31 of its units are live and that all of them are exact, also
+  in probe mode.
+- `scripts/install-texlive.sh` installs acmart, the packages it loads and its LuaLaTeX fonts
+  (Libertine, Inconsolata, Libertinus Math).
 
 ## 0.0.4 (2026-10-12)
 

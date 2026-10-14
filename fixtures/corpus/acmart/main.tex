@@ -1,0 +1,170 @@
+\documentclass[sigconf,nonacm]{acmart}
+\usepackage{booktabs}
+\usepackage{balance}
+
+\begin{document}
+\title{Tiered Page Placement for Disaggregated Memory}
+\author{Alice Zhang}
+\affiliation{\institution{North University}\city{Hangzhou}\country{China}}
+\author{Bob Li}
+\affiliation{\institution{South Institute}\city{Shanghai}\country{China}}
+
+\begin{abstract}
+Memory pools attached over a coherent interconnect add capacity to a server at a higher access
+latency than local memory. Which pages live in local memory then decides most of an
+application's slowdown. This paper places pages by their measured access frequency and by the
+bandwidth each tier has left, instead of by recency alone. On five data-center workloads the
+placement keeps the slowdown below eight percent while two thirds of the memory lives in the
+pool, and it migrates a third fewer pages than a recency-based policy.
+\end{abstract}
+
+\maketitle
+
+\section{Introduction}
+A server's local memory is sized for its peak demand, and most of it stays idle most of the
+time. Pooling memory across servers over a coherent interconnect lets each server borrow
+capacity when it needs it and return it later. The price is latency: a load from the pool takes
+about twice as long as a load from local memory, and the pool's bandwidth is shared.
+
+Operating systems already move pages between tiers. They promote a page to local memory when it
+is touched and demote pages that have not been touched for a while. This works when the hot set
+is small and stable. It works poorly when the hot set is larger than local memory, because every
+promotion demotes another page that is about to be used again.
+
+We make three observations. First, access frequency predicts future use better than recency for
+the workloads we study. Second, the pool's bandwidth, not its latency, limits throughput once
+more than a third of the accesses go to it. Third, a placement that accounts for both needs far
+fewer migrations than one that reacts to every access.
+
+\subsection{Contributions}
+This paper makes the following contributions:
+\begin{itemize}
+\item a measurement of page access frequency in five data-center workloads;
+\item a placement policy that weighs frequency against the bandwidth left in each tier;
+\item an evaluation against recency-based tiering on real hardware.
+\end{itemize}
+
+\section{Background}
+Coherent interconnects expose remote memory as ordinary physical addresses. The processor caches
+remote lines like local ones, so software sees one address space with two speeds. The operating
+system decides which physical frames back which virtual pages, and it can change that decision
+at any time by copying a page and updating its page table entry.
+
+\subsection{Tiering in the kernel}
+The kernel samples accesses by clearing the accessed bit in page table entries and checking it
+again later. A page whose bit is set at the second check counts as hot. Sampling is cheap but
+coarse: it cannot tell a page touched once from a page touched a thousand times in the interval.
+
+\subsubsection{Promotion and demotion}
+Promotion moves a hot page from the pool to local memory. When local memory is full, promotion
+first demotes the coldest local page. Both directions copy four kilobytes and flush the
+translation of the page on every core that may cache it.
+
+\paragraph{Cost of a migration.} A single migration takes a few microseconds, most of it in the
+translation flush. At tens of thousands of migrations per second the flushes alone take a
+noticeable share of every core.
+
+\section{Measurements}
+We traced memory accesses of five workloads with hardware sampling at one access in ten
+thousand. Table~\ref{tab:workloads} lists them with their memory footprints and the share of
+accesses that fall on the hottest tenth of their pages.
+
+\begin{table}[t]
+\centering
+\caption{Workloads and their access skew}
+\label{tab:workloads}
+\begin{tabular}{lrr}
+\toprule
+Workload & Footprint (GB) & Hottest 10\% \\
+\midrule
+Key-value store & 96 & 71\% \\
+Graph analytics & 128 & 54\% \\
+In-memory database & 112 & 66\% \\
+Web cache & 64 & 82\% \\
+Machine learning & 80 & 39\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The skew differs widely. The web cache concentrates most accesses on a few pages, while machine
+learning training sweeps its parameters evenly and has little skew to exploit.
+
+\begin{figure}[t]
+\centering
+\rule{0.9\linewidth}{3cm}
+\caption{Accesses per page over one minute, sorted by count.}
+\label{fig:skew}
+\end{figure}
+
+Figure~\ref{fig:skew} shows the distribution for the key-value store. A tenth of the pages
+receive seven tenths of the accesses, and half of the pages are touched fewer than ten times a
+minute.
+
+\section{Design}
+The placement policy keeps a count of sampled accesses for each page in a small table. Counts
+decay by half every second, so the table reflects recent frequency without forgetting a page
+after a single quiet interval.
+
+\subsection{Choosing pages to promote}
+Every hundred milliseconds the policy computes the bandwidth each tier has used. If the pool is
+below its bandwidth limit, the policy promotes only pages whose count exceeds the count of the
+coldest local page by a margin. If the pool is near its limit, it lowers the margin, because
+every access moved to local memory relieves the pool.
+
+\subsection{Batching migrations}
+Migrations are batched: the policy collects the pages to move, then copies them and flushes all
+their translations at once. One flush for a batch of sixty-four pages costs about as much as one
+flush for a single page.
+
+\begin{table*}[t]
+\centering
+\caption{Slowdown and migrations per second with two thirds of the memory in the pool}
+\label{tab:results}
+\begin{tabular}{lrrrr}
+\toprule
+Workload & Recency slowdown & Our slowdown & Recency migrations & Our migrations \\
+\midrule
+Key-value store & 9.1\% & 5.2\% & 41\,000 & 26\,000 \\
+Graph analytics & 14.3\% & 7.8\% & 63\,000 & 44\,000 \\
+In-memory database & 11.0\% & 6.1\% & 52\,000 & 31\,000 \\
+Web cache & 4.2\% & 2.9\% & 18\,000 & 12\,000 \\
+Machine learning & 16.5\% & 7.9\% & 75\,000 & 55\,000 \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\section{Evaluation}
+We ran each workload on a two-socket server with 64 GB of local memory per socket and a 256 GB
+memory pool. Table~\ref{tab:results} compares our policy with the kernel's recency-based
+tiering. Our policy lowers the slowdown for every workload and needs between a quarter and a
+half fewer migrations per second.
+
+The largest gains come from the workloads with moderate skew. When skew is high, as in the web
+cache, both policies find the hot pages easily. When skew is low, as in machine learning, the
+bandwidth term matters most: the policy keeps enough accesses in local memory to stay below the
+pool's limit.
+
+\subsection{Sensitivity to the decay interval}
+A shorter decay interval makes the counts follow phase changes faster, at the cost of more
+migrations. Intervals between half a second and two seconds give results within one percent of
+each other for all five workloads.
+
+\section{Related work}
+Hardware tiering keeps a cache of pool lines in local memory~\cite{hw}. It needs no software but
+cannot use the knowledge of which pages belong to which application. Software tiering in the
+kernel~\cite{kernel} and in user space~\cite{user} samples accesses as we do but decides by
+recency.
+
+\section{Conclusion}
+Placing pages by frequency and by the bandwidth each tier has left keeps the slowdown of pooled
+memory low with fewer migrations than recency-based tiering. The policy needs only a small
+table per page and runs in the kernel's existing tiering path.
+
+\balance
+\begin{thebibliography}{3}
+\bibitem{hw} A.~Author. Hardware-managed memory tiers. In \emph{Proc.\ of a Symposium}, 2023.
+\bibitem{kernel} B.~Author. Tiered memory in the operating system kernel. In \emph{Proc.\ of a
+Conference}, 2022.
+\bibitem{user} C.~Author. User-space page placement. In \emph{Proc.\ of a Workshop}, 2024.
+\end{thebibliography}
+\end{document}
