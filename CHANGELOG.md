@@ -29,6 +29,11 @@
 - IEEEtran's `\subsubsection`, a run-in heading like `\paragraph`, waits for the next pass
   instead of going live without the paragraph its title shares a line with. rtex knew run-in
   headings only by name; the capture now records which headings the class sets run-in.
+- An acmart document no longer reports "An attempt to redefine \section detected" (and the same
+  for `\subsection`, `\subsubsection` and `\paragraph`) in every pass. The class compares the
+  headings with copies it saves before `\begin{document}`, and the hooks rtex puts on the
+  headings are installed after that. The copies are now brought up to date, unless the document
+  changed a heading itself, which is still reported.
 
 ### New
 

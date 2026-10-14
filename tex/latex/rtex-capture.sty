@@ -39,6 +39,20 @@
   \rtex@tmp}
 \@for\rtex@n:=\rtex@blockenvs\do{\expandafter\rtex@hookenv\expandafter{\rtex@n}}
 \@for\rtex@n:=\rtex@headings\do{\expandafter\rtex@hookheading\expandafter{\rtex@n}}
+% acmart keeps copies of its headings (\ACM@origsection...) and checks with \ifx at the end of
+% the document that the headings are still those. The kernel installs the hooks above when the
+% document begins, after acmart made the copies, which changes the headings' meaning: the class
+% would report a redefinition of each. A copy that still equals its heading before the kernel
+% patches it is updated afterwards; one the document has already changed is left alone, so a
+% real redefinition in the preamble or the body is still reported.
+\def\rtex@syncguard#1{%
+  \@ifundefined{ACM@orig#1}{}{%
+    \expandafter\ifx\csname ACM@orig#1\expandafter\endcsname\csname #1\endcsname
+      \AddToHook{begindocument/end}{%
+        \expandafter\let\csname ACM@orig#1\expandafter\endcsname\csname #1\endcsname}%
+    \fi}}
+\AddToHook{begindocument/before}{%
+  \@for\rtex@n:=\rtex@headings\do{\expandafter\rtex@syncguard\expandafter{\rtex@n}}}
 % Picture cache (see rtex-capture.lua): the begin macro of each picture environment is wrapped
 % so a picture the session's manifest lists is replaced by the cached region of an earlier
 % pass's PDF, and every other one is tagged so its page position is recorded.
